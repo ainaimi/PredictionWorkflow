@@ -35,7 +35,7 @@ glimpse(a)
 a %>% count(mhxpara)
 
 #' Create hold-out sample for honest validation using caret package function
-
+set.seed(123)
 train <- createDataPartition(a$ptb32sp, p=0.8, list=FALSE)
 training <- a[train, ]
 testing <- a[-train,]
@@ -52,6 +52,7 @@ testing
 mod_fit <- glm(ptb32sp ~ .,data=training,family=binomial(logit))
 summary(mod_fit)
 
+#' This is the risk score from a logit model
 testing$logit_predict <- predict(mod_fit,newdata=testing,type="response")
 
 ##' NEED TO PICK ALPHA APPROPRIATELY
@@ -85,27 +86,27 @@ sl.lib <- c(ranger_learner$names,
             "SL.glm.interaction",
             "SL.bayesglm")
 
-num_cores = RhpcBLASctl::get_num_cores() - 1
-options(mc.cores = num_cores)
-set.seed(123, "L'Ecuyer-CMRG")
+sl.lib <- ranger_learner$names
 
-fitY<-CV.SuperLearner(Y=y,X=x,family="binomial",
-                      method="method.AUC",
-                      SL.library=sl.lib,
-                      cvControl=list(V=3,stratifyCV=T),
-                      parallel = "multicore")
+fitY <- SuperLearner(Y=y,X=x,family="binomial",
+                     method="method.AUC",
+                     SL.library=sl.lib,
+                     cvControl=list(V=10,stratifyCV=T)) # V should be 10 or 20
 
 #' Note: for rare binary outcomes, consider using the stratifyCV option to
 #'		maintain roughly the same # of outcomes per fold
 #' View the output: 'Risk' column returns the CV estimates of (1-AUC)
 #;		'Coef' column gives the weights for the final SuperLearner (meta-learner)
-summary(fitY)
+fitY
 
-table(simplify2array(fitY$whichDiscreteSL))
+#' Obtain the predicted probability of the outcome from SL
+#' This is the risk score from the SL algorithm
 
-#newX=subset(testing,select = names(x)),
-# Obtain the predicted probability of the outcome from SL
-testing$SL_pred<-fitY$SL.predict
+newX <- subset(testing,select = names(x))
+testing$SL_pred <- predict(fitY, newdata=newX, onlySL=T)$pred
+
+##' NEED TO PICK ALPHA APPROPRIATELY
+
 testing$SL_class <- as.numeric(testing$SL_pred > runif(nrow(testing)))
 p <- data.frame(y=testing$ptb32sp, y_pred=testing$SL_pred)
 head(p)
